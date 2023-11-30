@@ -17,7 +17,7 @@ DB_PASSWORD = os.environ.get('DB_PASSWORD')
 DB_HOST = os.environ.get('DB_HOST')
 DB_PORT = os.environ.get('DB_PORT')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-
+GOOGLE_ENDPOINT='https://customsearch.googleapis.com/customsearch/v1'
 
 # Modify the client instantiation for OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -124,8 +124,8 @@ def search_resources(query, selected_types, location_filter):
         full_query = " ".join(query_terms) + " support organization non-profit"
 
         params = {
-            'key': API_KEY,
-            'cx': CX,
+            'key': GOOGLE_API_KEY,
+            'cx': GOOGLE_CX,
             'q': full_query,
             'num': 5
         }

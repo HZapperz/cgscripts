@@ -225,9 +225,9 @@ def main():
         resource_types = ['Support Groups', 'Financial Assistance', 'Healthcare Navigation', 'Technology Tools', 'Legal Support', 'Community Programs']
         selected_types = st.multiselect('Resource Types', resource_types)
 
-        # Dropdown for disease selection
+        # Dropdown for disease selection with no default selection
         st.markdown("Select the disease:")
-        selected_disease = st.selectbox('Disease', DISEASES)
+        selected_disease = st.selectbox('Select a Disease (Choose one)', [''] + DISEASES, index=0)
 
         # Add an optional geographical filter
         location_filter = st.text_input("Enter a location to filter (optional):")
@@ -235,16 +235,19 @@ def main():
         # Text input for search query
         query = st.text_input("Enter Search Query")
 
-        # Search button
-        if query and st.button("Search Resources"):
-            # Modify the function call to include selected types and location filter
+        # Search button - activate only if a disease is selected and a query is entered
+        if selected_disease and query and st.button("Search Resources"):
+            # Call the function to search resources based on the query, selected types, and location filter
             summary, search_results_df = search_resources(query, selected_types, location_filter)
-            st.write(summary)
-            towrite = BytesIO()
-            search_results_df.to_excel(towrite, index=False)
-            towrite.seek(0)
-            st.download_button(label="Download Search Results", data=towrite, file_name='search_results.xlsx')
-    
+            
+            if not search_results_df.empty:
+                st.write(summary)
+                towrite = BytesIO()
+                search_results_df.to_excel(towrite, index=False)
+                towrite.seek(0)
+                st.download_button(label="Download Search Results", data=towrite, file_name='search_results.xlsx')
+            else:
+                st.warning("No results found. Please try a different query or selection.")
     # Tab 3: Mass Import
     with tab3:
         st.text("Upload a spreadsheet to add new resources to the database in bulk.")

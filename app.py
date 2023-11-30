@@ -115,7 +115,7 @@ def remove_non_diseases(df, selected_disease):
 
 
 # Search Resources
-def search_resources(query, selected_types, location_filter):
+def search_resources(query, selected_types, location_filter, selected_disease):
     # Configuration for Google Search
     def get_google_search_results(query, selected_types, location_filter):
         query_terms = [query] + selected_types
@@ -160,9 +160,7 @@ def search_resources(query, selected_types, location_filter):
         content = fetch_content_from_url(url)
         title, description = parse_website_content(content)
 
-        disease_prompt = f"Based on the title: {title} and description: {description}, which disease from the list {DISEASES} best matches?"
-        disease_response = get_gpt_response(disease_prompt).strip()
-        disease = extract_exact_category_or_disease(disease_response, DISEASES)
+        disease = selected_disease
 
         category_prompt = f"Based on the title: {title} and description: {description}, which category from the list {CATEGORIES} best matches?"
         category_response = get_gpt_response(category_prompt).strip()
@@ -238,7 +236,7 @@ def main():
         # Search button - activate only if a disease is selected and a query is entered
         if selected_disease and query and st.button("Search Resources"):
             # Call the function to search resources based on the query, selected types, and location filter
-            summary, search_results_df = search_resources(query, selected_types, location_filter)
+            summary, search_results_df = search_resources(query, selected_types, location_filter, selected_disease)
             
             if not search_results_df.empty:
                 st.write(summary)

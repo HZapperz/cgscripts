@@ -62,7 +62,8 @@ def get_gpt_response(prompt):
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": prompt}
-        ]
+        ],
+        max_tokens=200,
     )
     message_content = response.choices[0].message.content
     return message_content.strip()
@@ -145,7 +146,8 @@ def search_resources(query, selected_types, location_filter, selected_disease):
         ]
         response = client.chat.completions.create(
             model="gpt-4-1106-preview",
-            messages=messages
+            messages=messages,
+            max_tokens=300,
         )
         message_content = response.choices[0].message.content
         return message_content.strip()

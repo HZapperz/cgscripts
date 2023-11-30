@@ -5,20 +5,74 @@ import uuid
 import requests
 from openai import OpenAI
 from io import BytesIO
-
-GOOGLE_ENDPOINT = "https://customsearch.googleapis.com/customsearch/v1"
-API_KEY = 'AIzaSyB0CnzLIRvJnP51_UtnCJLkb3RDIq_YdNg'
-CX = '54a973ece6d92437a'
+from bs4 import BeautifulSoup
+import os
 
 
-# Database Connection String
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
+GOOGLE_CX = os.environ.get('GOOGLE_CX')
+DB_NAME = os.environ.get('DB_NAME')
+DB_USER = os.environ.get('DB_USER')
+DB_PASSWORD = os.environ.get('DB_PASSWORD')
+DB_HOST = os.environ.get('DB_HOST')
+DB_PORT = os.environ.get('DB_PORT')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+
+
+# Modify the client instantiation for OpenAI
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Constants from populate.py
+DISEASES = ["MYELOMA", "ALS", "PARKINSON", "STROKE", "ALZHEIMER"]
+CATEGORIES = ["GENERAL", "EMOTIONAL", "HOME_CARE", "FINANCIAL_LEGAL"]
+
+
 connection_string = (
-    f"dbname='postgres' "
-    f"user='postgres' "
-    f"password='1OBkLRPpWQCrABWs' "
-    f"host='db.kbwqfyazwecemnoujpgx.supabase.co' "
-    f"port='5432'"
+    f"dbname='{DB_NAME}' "
+    f"user='{DB_USER}' "
+    f"password='{DB_PASSWORD}' "
+    f"host='{DB_HOST}' "
+    f"port='{DB_PORT}'"
 )
+# Database Connection String
+
+
+def fetch_content_from_url(url):
+    response = requests.get(url)
+    return response.text
+
+def parse_website_content(content):
+    soup = BeautifulSoup(content, 'html.parser')
+    
+    # Check if the title tag exists and has content
+    title = soup.title.string if soup.title else 'No Title Found'
+    
+    paragraphs = soup.find_all('p')
+    description = ' '.join([p.text for p in paragraphs])
+    
+    # Handling cases where no paragraphs are found
+    if not description:
+        description = "No description available"
+
+    return title, description
+
+def get_gpt_response(prompt):
+    response = client.chat.completions.create(
+        model="gpt-4-1106-preview",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    message_content = response.choices[0].message.content
+    return message_content.strip()
+
+
+def extract_exact_category_or_disease(response, choices):
+    for choice in choices:
+        if choice.lower() in response.lower():
+            return choice
+    return "Unknown"
 
 # Load data from Excel
 def load_data_from_excel(file):
@@ -53,24 +107,34 @@ def delete_all_resources():
             cur.execute("DELETE FROM \"Resources\";")
             conn.commit()
 
+def remove_non_diseases(df, selected_disease):
+    # Filter the DataFrame to keep only rows where the 'Disease' matches the selected disease
+    filtered_df = df[df['Disease'] == selected_disease]
+    return filtered_df
+
+
+
 # Search Resources
-def search_resources(query):
-    # Configuration
+def search_resources(query, selected_types, location_filter):
+    # Configuration for Google Search
+    def get_google_search_results(query, selected_types, location_filter):
+        query_terms = [query] + selected_types
+        if location_filter:
+            query_terms.append(location_filter)
+        full_query = " ".join(query_terms) + " support organization non-profit"
 
-
-    def get_google_search_results(query):
         params = {
             'key': API_KEY,
             'cx': CX,
-            'q': query + " support resources",
-            'num': 10
+            'q': full_query,
+            'num': 5
         }
         response = requests.get(GOOGLE_ENDPOINT, params=params)
         return response.json().get('items', [])
 
-
+    # Process search results with OpenAI
     def process_with_openai(items):
-        client = OpenAI(api_key='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')
+        
         input_text = "Format the following search results into a readable summary:\n"
         for item in items:
             input_text += f"Title: {item['title']}\nLink: {item['link']}\nDescription: {item['snippet']}\n\n"
@@ -83,17 +147,41 @@ def search_resources(query):
             model="gpt-4-1106-preview",
             messages=messages
         )
-
-        # Extracting the content from the response using the correct path
         message_content = response.choices[0].message.content
         return message_content.strip()
 
+    items = get_google_search_results(query, selected_types, location_filter)
+    summary = process_with_openai(items)  # Process the search results for summary
 
-    items = get_google_search_results(query)
-    summary = process_with_openai(items)
-    data = [[item['title'], item['snippet'], item['link']] for item in items]
-    df = pd.DataFrame(data, columns=['Title', 'Description', 'Link'])
-    return summary, df
+    # Process each item to determine disease and category
+    updated_data = []
+    for item in items:
+        url = item['link']
+        content = fetch_content_from_url(url)
+        title, description = parse_website_content(content)
+
+        disease_prompt = f"Based on the title: {title} and description: {description}, which disease from the list {DISEASES} best matches?"
+        disease_response = get_gpt_response(disease_prompt).strip()
+        disease = extract_exact_category_or_disease(disease_response, DISEASES)
+
+        category_prompt = f"Based on the title: {title} and description: {description}, which category from the list {CATEGORIES} best matches?"
+        category_response = get_gpt_response(category_prompt).strip()
+        category = extract_exact_category_or_disease(category_response, CATEGORIES)
+
+        updated_row = {
+            'Title': title,
+            'Description': description,
+            'Link': url,
+            'Category': category,
+            'Image': 'NaN',  # Placeholder for image
+            'Disease': disease
+        }
+        
+        updated_data.append(updated_row)
+
+    updated_df = pd.DataFrame(updated_data, columns=['Title', 'Description', 'Link', 'Category', 'Image', 'Disease'])
+
+    return summary, updated_df
 
 def verify_upload_data(data):
     return (data)
@@ -129,19 +217,34 @@ def main():
     # Tab 2: Crawling Function
     with tab2:
         st.markdown("""
-            To crawl the internet for new resources, enter as specifically as possible what type of resource you would like. 
-            Once the crawl is complete it will give you an excel file to open and make any edits. Once complete with those edits, 
-            upload those resources and it will append them to the database.
+            To find organizations and services that provide specific support to caregivers, enter your search query below. This tool focuses on identifying websites of non-profit organizations, support groups, healthcare navigation services, financial assistance programs, technology tools, legal support, and community programs. Please note that the search will exclude articles and blog posts.
         """)
+
+        # Add checkboxes for selecting resource types
+        st.markdown("Select the type of resources you are interested in:")
+        resource_types = ['Support Groups', 'Financial Assistance', 'Healthcare Navigation', 'Technology Tools', 'Legal Support', 'Community Programs']
+        selected_types = st.multiselect('Resource Types', resource_types)
+
+        # Dropdown for disease selection
+        st.markdown("Select the disease:")
+        selected_disease = st.selectbox('Disease', DISEASES)
+
+        # Add an optional geographical filter
+        location_filter = st.text_input("Enter a location to filter (optional):")
+
+        # Text input for search query
         query = st.text_input("Enter Search Query")
+
+        # Search button
         if query and st.button("Search Resources"):
-            summary, search_results_df = search_resources(query)
+            # Modify the function call to include selected types and location filter
+            summary, search_results_df = search_resources(query, selected_types, location_filter)
             st.write(summary)
             towrite = BytesIO()
             search_results_df.to_excel(towrite, index=False)
             towrite.seek(0)
             st.download_button(label="Download Search Results", data=towrite, file_name='search_results.xlsx')
-
+    
     # Tab 3: Mass Import
     with tab3:
         st.text("Upload a spreadsheet to add new resources to the database in bulk.")

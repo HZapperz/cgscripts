@@ -42,19 +42,43 @@ def fetch_content_from_url(url):
     return response.text
 
 def parse_website_content(content):
-    soup = BeautifulSoup(content, 'html.parser')
-    
-    # Check if the title tag exists and has content
-    title = soup.title.string if soup.title else 'No Title Found'
-    
-    paragraphs = soup.find_all('p')
-    description = ' '.join([p.text for p in paragraphs])
-    
-    # Handling cases where no paragraphs are found
+    title = get_concise_title_from_gpt(content)
+    description = get_concise_description_from_gpt(content)  # Now using GPT-4 for description
+
+    # Handling cases where no description is generated
     if not description:
         description = "No description available"
 
     return title, description
+
+def get_concise_description_from_gpt(content):
+    prompt = f"You are a helpful summarizer. Please provide a concise summary of the following website content:\n\n{content}\n\n"
+
+    response = client.chat.completions.create(
+        model="gpt-4-1106-preview",
+        messages=[
+            {"role": "system", "content": "You are a helpful summarizer."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=200,  # Adjust as needed
+    )
+    description = response.choices[0].message.content.strip()
+    return description
+
+def get_concise_title_from_gpt(content):
+    prompt = f"You are a helpful summarizer that takes in website information and returns a comprehensive title of the information found on that site. Here is the website information:\n\n{content}\n\nPlease provide a summarized title for this content."
+
+    response = client.chat.completions.create(
+        model="gpt-4-1106-preview",
+        messages=[
+            {"role": "system", "content": "You are a helpful summarizer."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=60,
+    )
+    title = response.choices[0].message.content.strip()
+    return title
+
 
 def get_gpt_response(prompt):
     response = client.chat.completions.create(
